@@ -1,0 +1,1385 @@
+//Select No Crystal
+IF OBJECT_ID('[#@@USERNAME#_TempForecast]') IS NOT NULL
+    DROP TABLE [#@@USERNAME#_TempForecast];
+
+IF OBJECT_ID('[#@@USERNAME#_TempForecast2]') IS NOT NULL
+    DROP TABLE [#@@USERNAME#_TempForecast2];
+
+IF OBJECT_ID('[#@@USERNAME#_TempBudget]') IS NOT NULL
+	DROP TABLE [#@@USERNAME#_TempBudget];
+
+IF OBJECT_ID('[#@@USERNAME#_TempBudget2]') IS NOT NULL
+	DROP TABLE [#@@USERNAME#_TempBudget2];
+//End Select
+
+//SELECT No Crystal
+SELECT p.phMy hPpty
+	,agg.iBook
+	,agg.uMonth
+	,agg.hMy
+	,agg.iNormalBalance
+	,dbo.Account_Format(agg.scode) 'sCode'
+	,agg.sDesc
+	,agg.sType
+	,agg.iNest
+	,SUM(CASE
+			WHEN agg.bReverseValue = - 1
+				THEN - agg.sMTD
+			ELSE agg.sMtd
+			END * agg.bNegate * p.dPercent) AS 'sMTD'
+	,SUM(CASE
+			WHEN (
+					agg.iNormalBalance = 1
+					AND agg.bReverseValue = - 1
+					)
+				OR (
+					agg.iNormalBalance <> 1
+					AND agg.bReverseValue <> - 1
+					)
+				THEN agg.sBudget
+			ELSE - agg.sBudget
+			END * agg.bNegate * p.dPercent) AS 'sBudget'
+INTO [#@@USERNAME#_TempBudget]
+FROM (
+	SELECT p.hMy AS 'phMy'
+		,RTRIM(p.sCode) AS 'psCode'
+		,xref.dPercent / 100.00 AS 'dPercent'
+	FROM Property list
+	INNER JOIN ListProp2 xref ON xref.hPropList = list.hMy
+		AND xref.iType = 3
+	INNER JOIN Property p ON p.hMy = xref.hProperty
+	WHERE list.hMy IN (#hProperty#)
+	GROUP BY p.hMy
+		,p.sCode
+		,xref.dPercent
+	) p
+CROSS APPLY (
+	/* Derive all totals */
+	SELECT det.iBook
+		,det.uMonth
+		,atd.hMy
+		,atd.sCode
+		,atd.sDesc
+		,atd.sType
+		,atd.iNest
+		,CASE
+			WHEN ISNULL(atd.bNegate, 0) = 0
+				THEN 1
+			ELSE - 1
+			END AS 'bNegate'
+		,ISNULL(atd.bReverseValue, 0) AS 'bReverseValue'
+		,ISNULL(a.iNormalBalance, 0) AS 'iNormalBalance'
+		,CASE atd.sType
+			WHEN 'H'
+				THEN NULL
+			WHEN 'R'
+				THEN det.sMTD
+			ELSE /* T */ SUM(det.sMTD)
+			END AS 'sMTD'
+		,CASE atd.sType
+			WHEN 'H'
+				THEN NULL
+			WHEN 'R'
+				THEN det.sBudget
+			ELSE /* T */ SUM(det.sBudget)
+			END AS 'sBudget'
+	FROM (
+		/* Details */
+		SELECT t.iBook
+			,atx.hAcct
+			,atx.hDetail
+			,t.uMonth
+			,SUM(t.sMTD) AS 'sMTD'
+			,SUM(t.sBudget) AS 'sBudget'
+		FROM AcctTree [at]
+		INNER JOIN AcctTreeXref atx ON atx.hTree = [at].hMy
+		INNER JOIN Total t ON t.hAcct = atx.hAcct
+		WHERE [at].hMy = #Tree#
+			AND t.hPpty = p.phMy
+			AND (
+				/* Budget */
+				YEAR(t.uMonth) = YEAR('#BudYear#')
+				AND t.iBook IN (#Book#)
+				)
+			AND (
+				ISNULL(t.sMTD, 0) <> 0
+				OR ISNULL(t.sBudget, 0) <> 0
+				)
+		GROUP BY t.iBook
+			,atx.hAcct
+			,atx.hDetail
+			,t.uMonth
+		) det /* R */
+	LEFT JOIN AcctTreeDetailXref atdx ON atdx.hDetail = det.hDetail /* H, T */
+		AND atdx.hTree = #Tree#
+	LEFT JOIN AcctTreeDetail atd ON atd.hMy = atdx.hHeader
+		OR atd.hMy = det.hDetail
+		OR atd.hMy = atdx.hTotal /* H, R, T */
+	INNER JOIN Acct a ON a.hMy = det.hAcct
+	/*WHERE atd.bHide <> - 1*/
+	GROUP BY det.iBook
+		,det.uMonth
+		,atd.hMy
+		,atd.sCode
+		,atd.sDesc
+		,atd.sType
+		,atd.iNest
+		,atd.bNegate
+		,atd.bReverseValue
+		,a.iNormalBalance
+		,det.sMTD
+		,det.sBudget
+	) agg
+GROUP BY p.phMy
+	,agg.iBook
+	,agg.uMonth
+	,agg.hMy
+	,agg.iNormalBalance
+	,dbo.Account_Format(agg.scode)
+	,agg.sDesc
+	,agg.sType
+	,agg.iNest
+ORDER BY agg.hMy
+
+//End Select
+//Select No Crystal
+SELECT pvt.psCode AS 'Code'
+	,REPLICATE('  ', pvt.iNest) + pvt.sDesc AS 'sDesc'
+	,pvt.sCode
+	,pvt.hmy
+	,pvt.hppty
+	,pvt.sType
+	,pvt.iNest
+	,sum(pvt.Jan) Jan
+	,sum(pvt.Feb) Feb
+	,sum(pvt.Mar) Mar
+	,sum(pvt.Apr) Apr
+	,sum(pvt.May) May
+	,sum(pvt.Jun) Jun
+	,sum(pvt.Jul) Jul
+	,sum(pvt.Aug) Aug
+	,sum(pvt.Sep) Sep
+	,sum(pvt.Oct) Oct
+	,sum(pvt.Nov) Nov
+	,sum(pvt.Dec) [Dec]
+	,SUM(CASE
+		WHEN pvt.sType IN ('H')
+			THEN NULL
+		ELSE pvt.Total
+		END) 'Total'
+	,SUM(bdgt.Total) AS 'Budget'
+	,SUM(pvt.Total - bdgt.Total) AS 'Var'
+INTO [#@@USERNAME#_TempBudget2]
+FROM (
+	SELECT p.hMy AS 'phMy'
+		,RTRIM(p.sCode) AS 'psCode'
+		,xref.dPercent / 100.00 AS 'dPercent'
+	FROM Property list
+	INNER JOIN ListProp2 xref ON xref.hPropList = list.hMy
+		AND xref.iType = 3
+	INNER JOIN Property p ON p.hMy = xref.hProperty
+	WHERE list.hMy IN (#hProperty#)
+	GROUP BY p.hMy
+		,p.sCode
+		,xref.dPercent
+	) p
+INNER JOIN (
+	SELECT cf.hPpty
+		,SUBSTRING(DATENAME(MONTH, cf.uMonth), 1, 3) AS 'MonthName'
+		,cf.hMy
+		,cf.sType
+		,cf.iNest
+		,cf.sCode
+		,cf.sDesc
+		,cf.iNormalBalance
+		,CASE
+			WHEN cf.sType = 'H'
+				THEN NULL
+			ELSE cf.sBudget
+			END AS 'Amount'
+		,SUM(CASE
+				WHEN cf.sType = 'H'
+					THEN 0
+				ELSE cf.sBudget
+				END) OVER (
+			PARTITION BY cf.hPpty
+			,cf.sCode
+			) AS 'Total'
+	FROM [#@@USERNAME#_TempBudget] cf
+	/*WHERE YEAR(cf.UMONTH) = YEAR('#BudYear#')*/
+	) cf ON cf.hPpty = p.phmy
+PIVOT(SUM(cf.Amount) FOR cf.MonthName IN (
+			[Jan]
+			,[Feb]
+			,[Mar]
+			,[Apr]
+			,[May]
+			,[Jun]
+			,[Jul]
+			,[Aug]
+			,[Sep]
+			,[Oct]
+			,[Nov]
+			,[Dec]
+			)) pvt
+OUTER APPLY (
+	SELECT SUM(bdgt.sBudget) AS 'Total'
+		,bdgt.sCode
+	FROM [#@@USERNAME#_TempBudget] bdgt
+	WHERE bdgt.iBook IN (#Book#)
+		AND bdgt.hPpty = pvt.phMy
+		AND bdgt.sCode = pvt.sCode
+	GROUP BY bdgt.sCode
+	) bdgt
+GROUP BY pvt.psCode
+	,REPLICATE('  ', pvt.iNest) + pvt.sDesc
+	,pvt.sCode
+	,pvt.hmy
+	,pvt.hppty
+	,pvt.sType
+	,pvt.iNest;
+
+//End Select
+//Select No Crystal
+SELECT p.phMy
+	,agg.uMonth
+	,agg.hMy
+	,dbo.Account_Format(agg.sCode) sCode
+	,agg.sDesc
+	,agg.sType
+	,agg.iNest
+	,agg.iBook
+	,agg.iNormalBalance
+	,SUM(CASE
+			WHEN agg.bReverseValue = - 1
+				THEN - agg.sMTD
+			ELSE agg.sMtd
+			END * agg.bNegate * p.dPercent /** CASE
+			WHEN agg.iNormalBalance = 1
+				THEN 1
+			ELSE - 1
+			END*/) AS 'sMTD'
+	,SUM(CASE
+			WHEN (
+					agg.iNormalBalance = 1
+					AND agg.bReverseValue = - 1
+					)
+				OR (
+					agg.iNormalBalance <> 1
+					AND agg.bReverseValue <> - 1
+					)
+				THEN agg.sBudget
+			ELSE - agg.sBudget
+			END * agg.bNegate * p.dPercent /** CASE
+			WHEN agg.iNormalBalance = 1
+				THEN 1
+			ELSE - 1
+			END*/) AS 'sBudget'
+INTO [#@@USERNAME#_TempForecast]
+FROM (
+	SELECT p.hMy AS 'phMy'
+		,RTRIM(p.sCode) AS 'psCode'
+		,xref.dPercent / 100.00 AS 'dPercent'
+	FROM Property list
+	INNER JOIN ListProp2 xref ON xref.hPropList = list.hMy
+		AND xref.iType = 3
+	INNER JOIN Property p ON p.hMy = xref.hProperty
+	WHERE list.hMy IN (#hProperty#)
+	GROUP BY p.hMy
+		,p.sCode
+		,xref.dPercent
+	) p
+CROSS APPLY (
+	/* Derive all totals */
+	SELECT det.iBook
+		,det.uMonth
+		,atd.hMy
+		,atd.sCode
+		,atd.sDesc
+		,atd.sType
+		,atd.iNest
+		,CASE
+			WHEN ISNULL(atd.bNegate, 0) = 0
+				THEN 1
+			ELSE - 1
+			END AS 'bNegate'
+		,ISNULL(atd.bReverseValue, 0) AS 'bReverseValue'
+		,ISNULL(a.iNormalBalance, 0) AS 'iNormalBalance'
+		,CASE atd.sType
+			WHEN 'H'
+				THEN NULL
+			WHEN 'R'
+				THEN det.sMTD
+			ELSE /* T */ SUM(det.sMTD)
+			END AS 'sMTD'
+		,CASE atd.sType
+			WHEN 'H'
+				THEN NULL
+			WHEN 'R'
+				THEN det.sBudget
+			ELSE /* T */ SUM(det.sBudget)
+			END AS 'sBudget'
+	FROM (
+		/* Details */
+		SELECT b.BookName
+			,atx.hDetail
+			,t.uMonth
+			,t.iBook
+			,atx.hacct
+			,SUM(t.sMTD) AS 'sMTD'
+			,SUM(t.sBudget) AS 'sBudget'
+		FROM AcctTree tree
+		INNER JOIN AcctTreeXref atx ON atx.hTree = tree.hMy
+		INNER JOIN Total t ON t.hAcct = atx.hAcct
+		INNER JOIN Books b ON b.book = t.ibook
+			AND t.iBook IN (#Book#)
+		WHERE tree.hMy = #tree#
+			AND t.hPpty = p.phMy
+			AND (
+				YEAR(t.uMonth) = Year('#BudYear#')
+				OR YEAR(t.uMonth) = Year('#BudYear#') - 1
+				)
+			AND (
+				t.sMTD <> 0
+				OR t.sBudget <> 0
+				)
+		GROUP BY b.BookName
+			,atx.hDetail
+			,t.uMonth
+			,t.iBook
+			,atx.hacct
+		) det /* R */
+	LEFT JOIN AcctTreeDetailXref atdx ON atdx.hDetail = det.hDetail /* H, T */
+		AND atdx.hTree = #Tree#
+	LEFT JOIN AcctTreeDetail atd ON atd.hMy = atdx.hHeader
+		OR atd.hMy = det.hDetail
+		OR atd.hMy = atdx.hTotal /* H, R, T */
+	INNER JOIN Acct a ON a.hMy = det.hAcct
+	/*WHERE atd.bHide <> - 1*/
+	GROUP BY det.iBook
+		,det.uMonth
+		,atd.hMy
+		,atd.sCode
+		,atd.sDesc
+		,atd.sType
+		,atd.iNest
+		,atd.bNegate
+		,atd.bReverseValue
+		,a.iNormalBalance
+		,det.sMTD
+		,det.sBudget
+	) agg
+GROUP BY p.phMy
+	,agg.iBook
+	,agg.uMonth
+	,agg.hMy
+	,agg.iNormalBalance
+	,dbo.Account_Format(agg.sCode)
+	,agg.sDesc
+	,agg.sType
+	,agg.iNest
+ORDER BY agg.hMy
+
+
+//END SELECT
+//SELECT No Crystal
+SELECT pvt.psCode As 'Code'
+	,pvt.hMy
+	,REPLICATE('  ', pvt.iNest) + pvt.sDesc AS 'sDesc'
+	,pvt.sCode
+	,pvt.sType
+	,pvt.iBook
+	,pvt.iNest
+	,CASE
+		WHEN pvt.sType = 'H'
+			THEN NULL
+		ELSE SUM(CASE
+				WHEN pvt.iNormalBalance = 1
+					THEN - 1
+				ELSE 1
+				END)
+		END iNormalBalance
+	,SUM(pvt.Jan) AS 'Jan'
+	,SUM(pvt.Feb) AS 'Feb'
+	,SUM(pvt.Mar) AS 'Mar'
+	,SUM(pvt.Apr) AS 'Apr'
+	,SUM(pvt.May) AS 'May'
+	,SUM(pvt.Jun) AS 'Jun'
+	,SUM(pvt.Jul) AS 'Jul'
+	,SUM(pvt.Aug) AS 'Aug'
+	,SUM(pvt.Sep) AS 'Sep'
+	,SUM(pvt.[Oct]) AS 'Oct'
+	,SUM(pvt.Nov) AS 'Nov'
+	,SUM(pvt.[Dec]) AS 'Dec'
+	,SUM([JanAct]) JanAct
+	,SUM([FebAct]) FebAct
+	,SUM([MarAct]) MarAct
+	,SUM([AprAct]) AprAct
+	,SUM([MayAct]) MayAct
+	,SUM([JunAct]) JunAct
+	,SUM([JulAct]) JulAct
+	,SUM([AugAct]) AugAct
+	,SUM([SepAct]) SepAct
+	,SUM([OctAct]) OctAct
+	,SUM([NovAct]) NovAct
+	,SUM([DecAct]) DecAct
+INTO [#@@USERNAME#_TempForecast2]
+FROM (
+	SELECT p.hMy AS 'phMy'
+		,RTRIM(p.sCode) AS 'psCode'
+	FROM Property list
+	INNER JOIN ListProp2 xref ON xref.hPropList = list.hMy
+		AND xref.iType = 3
+	INNER JOIN Property p ON p.hMy = xref.hProperty
+	WHERE list.hMy IN (#hProperty#)
+	GROUP BY p.hMy
+		,p.sCode
+	) p
+CROSS APPLY (
+	SELECT p.psCode AS 'PropCode'
+		,SUBSTRING(DATENAME(MONTH, cf.uMonth), 1, 3) AS 'MonthName'
+		,cf.hMy
+		,cf.sType
+		,cf.iNest
+		,cf.sCode
+		,cf.sDesc
+		,cf.iBook
+		,CASE
+			WHEN cf.sType = 'H'
+				THEN NULL
+			ELSE cf.iNormalBalance
+			END iNormalBalance
+		,CASE
+			WHEN cf.sType = 'H'
+				THEN NULL
+			ELSE cf.sBudget
+			END AS 'Amount'
+	FROM [#@@USERNAME#_TempForecast] cf
+	INNER JOIN books b ON b.book = cf.iBook
+	WHERE cf.phMy = p.phMy
+		AND YEAR(cf.uMonth) = YEAR('#BudYear#')
+
+	UNION ALL
+
+	SELECT p.psCode AS 'PropCode'
+		,SUBSTRING(DATENAME(MONTH, cf.uMonth), 1, 3) + 'Act' AS 'MonthName'
+		,cf.hMy
+		,cf.sType
+		,cf.iNest
+		,cf.sCode
+		,cf.sDesc
+		,cf.iBook
+		,CASE
+			WHEN cf.sType = 'H'
+				THEN NULL
+			ELSE cf.iNormalBalance
+			END iNormalBalance
+		,CASE
+			WHEN cf.sType = 'H'
+				THEN NULL
+			ELSE cf.sMTD
+			END AS 'Amount'
+	FROM [#@@USERNAME#_TempForecast] cf
+	INNER JOIN books b ON b.book = cf.iBook
+	WHERE cf.phMy = p.phMy
+		AND YEAR(cf.uMonth) = YEAR('#BudYear#')
+
+	UNION ALL
+
+	SELECT p.psCode AS 'PropCode'
+		,'Budget' AS 'MonthName'
+		,bdgt.hMy
+		,bdgt.sType
+		,bdgt.iNest
+		,bdgt.sCode
+		,bdgt.sDesc
+		,bdgt.iBook
+		,CASE
+			WHEN bdgt.sType = 'H'
+				THEN NULL
+			ELSE bdgt.iNormalBalance
+			END iNormalBalance
+		,CASE
+			WHEN bdgt.sType = 'H'
+				THEN NULL
+			ELSE bdgt.sBudget
+			END AS 'Amount'
+	FROM [#@@USERNAME#_TempForecast] bdgt
+	WHERE bdgt.phMy = p.phMy
+		AND YEAR(bdgt.uMonth) = YEAR('#BudYear#')
+	) cf
+PIVOT(SUM(cf.Amount) FOR cf.MonthName IN ([Jan], [Feb], [Mar], [Apr], [May], [Jun], [Jul], [Aug], [Sep], [Oct], [Nov], [Dec], [Budget], [JanAct], [FebAct], [MarAct], [AprAct], [MayAct], [JunAct], [JulAct], [AugAct], [SepAct], [OctAct], [NovAct], [DecAct])) pvt
+GROUP BY pvt.psCode
+	,pvt.hMy
+	,pvt.sType
+	,pvt.sCode
+	,pvt.sDesc
+	,pvt.sType
+	,pvt.iNest
+	,pvt.iBook
+	/*,pvt.iNormalBalance*/
+ORDER BY pvt.psCode
+	,pvt.hMy;
+
+//End Select
+
+//Select Report2
+
+SELECT *
+	,CASE
+		WHEN '#ActualCut#' = ''
+			THEN 0
+		ELSE MONTH('#ActualCut#')
+		END MonthNum
+FROM [#@@USERNAME#_TempForecast2] bud
+ORDER BY bud.hMy
+
+//END SELECT
+//Select PrevBud
+
+SELECT *
+	,CASE
+		WHEN '#ActualCut#' = ''
+			THEN 0
+		ELSE MONTH('#ActualCut#')
+		END MonthNum
+FROM [#@@USERNAME#_TempBudget2]
+ORDER BY hmy
+	,sCode
+
+//End Select
+
+/*
+//Select Import
+
+SELECT tmp.*
+FROM [#@@USERNAME#_TempForecast2] tmp
+ORDER BY hMy
+
+//End Select
+*/
+
+//Select Import
+
+SELECT 1 TRANNUM
+	,tmp.Code PropCode
+	,#Book# BookNum
+	,YEAR('#BudYear#') + 1 Year
+	,tmp.scode AcctCode
+FROM [#@@USERNAME#_TempForecast2] tmp
+WHERE sType = 'R'
+ORDER BY hMy
+
+//End Select
+
+//Select CYMO
+SELECT p.scode AS PropCode
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 0, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy0
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 1, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy1
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 2, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy2
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 3, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy3
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 4, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy4
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 5, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy5
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 6, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy6
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 7, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy7
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 8, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy8
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 9, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy9
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 10, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy10
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 11, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy11
+FROM property p(NOLOCK)
+INNER JOIN unit u(NOLOCK) ON (
+		p.hmy = u.hproperty
+		AND u.exclude = '0'
+		)
+INNER JOIN tenant t(NOLOCK) ON (
+		t.hunit = u.hmy
+		AND t.dtmoveout BETWEEN convert(DATETIME, '#BudYear#')
+			AND DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#'))
+		)
+INNER JOIN label l(NOLOCK) ON (
+		l.element = t.ireason
+		AND l.subtype = 'REASON FOR MOVEOUT'
+		)
+INNER JOIN tenstatus ts(NOLOCK) ON (ts.istatus = t.istatus)
+INNER JOIN (
+	SELECT Max(th1.hmy) hMy
+		,th1.htent htent
+	FROM tenant_history th1(NOLOCK)
+	WHERE CONVERT(CHAR, th1.dtdate, 101) <= EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#')))
+		AND Upper(th1.sevent) IN (
+			'NOTICE GIVEN'
+			,'SKIP'
+			,'EARLY TERMINATION'
+			,'MOVE OUT'
+			,'ADJUST MOVEOUT DATES'
+			)
+	GROUP BY th1.htent
+	) maxth ON maxth.htent = t.hmyperson
+INNER JOIN tenant_history th ON th.hmy = maxth.hmy
+LEFT JOIN prospect pr ON (
+		pr.sstatus = 'Approved'
+		AND pr.dtapprove <= EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#')))
+		AND pr.hunit = u.hmy
+		)
+WHERE 1 = 1
+	AND p.hMy IN (#hProperty#)
+	AND p.itype = 3
+	AND Isnull(th.iActivityType, 0) = 0
+GROUP BY p.SCODE
+
+//End select
+//Select MidGrid
+SELECT p.scode AS PropCode
+	,sum(CASE
+			WHEN t.scode IS NOT NULL
+				AND th.sEvent = 'Month to Month'
+				THEN 1
+			ELSE 0
+			END) 'MTM'
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 12, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy0
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 13, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy1
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 14, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy2
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 15, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy3
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 16, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy4
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 17, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy5
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 18, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy6
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 19, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy7
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 20, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy8
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 21, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy9
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 22, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy10
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, t.dtmoveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 23, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy11
+FROM property p
+	,unittype ut
+	,unit u
+LEFT JOIN tenant t ON t.hUnit = u.hMy
+	AND t.istatus < 6
+	AND dateadd(month, 12, convert(DATETIME, '#BudYear#', 101)) <= isnull(t.dtmoveout, EOMONTH(DATEADD(MONTH, 23, convert(DATETIME, '#BudYear#', 101))))
+LEFT JOIN (
+	SELECT max(th1.hmy) hmy
+		,th1.hTent hTent
+	FROM tenant_history th1
+	WHERE (
+			upper(th1.sEvent) = 'MONTH TO MONTH'
+			OR UPPER(th1.sEvent) = 'LEASE RENEWAL'
+			)
+		AND convert(VARCHAR, th1.dtDate, 101) <= DATEADD(MONTH, 23, convert(DATETIME, '#BudYear#', 101))
+	GROUP BY th1.htent
+	) maxTH ON maxTH.hTent = t.hmyPerson
+LEFT JOIN tenant_history th ON (
+		th.hTent = t.hmyPerson
+		AND th.hmy = maxTH.hmy
+		)
+WHERE (p.hMy = u.hProperty)
+	AND u.hUnittype = ut.hMy
+	AND u.exclude = 0
+	AND p.hMy IN (#hProperty#)
+GROUP BY p.scode
+
+//End select
+//Select BUDMO
+SELECT PropCode AS PropCode
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 0, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy0
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 1, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy1
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 2, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy2
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 3, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy3
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 4, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy4
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 5, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy5
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 6, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy6
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 7, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy7
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 8, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy8
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 9, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy9
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 10, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy10
+	,sum(CASE
+			WHEN SUBSTRING(DATENAME(month, tenant_moveout), 1, 3) = SUBSTRING(DATENAME(month, dateadd(month, 11, '#BudYear#')), 1, 3)
+				THEN 1
+			ELSE 0
+			END) mmyy11
+FROM (
+	SELECT DISTINCT 'Expiring Leases' Section
+		,p.sAddr1 property_sAddr1
+		,p.scode PropCode
+		,u.scode uscode
+		,ut.SDesc utSDesc
+		,ts.STATUS
+		,isnull(u.sRent, 0) Market_rent
+		,isnull(u.dsqft, 0) unit_sqft
+		,isnull(t.sDeposit0, 0) tenant_deposit0
+		,t.scode Tenant_Code
+		,rtrim(t.sFirstName) + ' ' + t.sLastname resident
+		,isnull(t.sRent, 0) tenant_SRent
+		,t.dtLeaseFrom tenant_leasefrom
+		,t.dtleaseto tenant_leaseto
+		,t.dtMoveOut tenant_moveout
+		,u.hmy UnitId
+		,t.hmyperson TenantId
+	FROM Property p
+	INNER JOIN unit u ON u.hProperty = p.hmy
+	INNER JOIN tenant t ON t.hunit = u.hmy
+	INNER JOIN tenstatus ts ON ts.istatus = t.istatus
+	LEFT JOIN unittype ut ON ut.hmy = u.hUnitType
+	INNER JOIN lease_history lh ON lh.htent = t.hmyPerson
+		AND lh.dtleaseto BETWEEN convert(DATETIME, '#BudYear#', 101)
+			AND EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+		AND lh.sstatus NOT IN (
+			'Approved'
+			,'Proposed'
+			,'Denied'
+			,'Unposted'
+			,'Scheduled'
+			)
+	WHERE 1 = 1
+		AND p.hMy IN (#hProperty#)
+
+	UNION ALL
+
+	SELECT CASE Maxth.sEvent
+			WHEN 'Month to Month'
+				THEN 'M-to-M'
+			ELSE ' '
+			END Section
+		,p.sAddr1 property_sAddr1
+		,p.scode PropCode
+		,u.scode uscode
+		,ut.SDesc utSDesc
+		,ts.STATUS
+		,isnull(u.sRent, 0) Market_rent
+		,isnull(u.dsqft, 0) unit_sqft
+		,isnull(t.sDeposit0, 0) tenant_deposit0
+		,t.scode Tenant_Code
+		,rtrim(t.sFirstName) + ' ' + t.sLastname resident
+		,isnull(t.sRent, 0) tenant_SRent
+		,t.dtLeaseFrom tenant_leasefrom
+		,t.dtleaseto tenant_leaseto
+		,t.dtMoveOut tenant_moveout
+		,u.hmy UnitId
+		,t.hmyperson TenantId
+	FROM Property p
+	INNER JOIN unit u ON u.hProperty = p.hmy
+	INNER JOIN tenant t ON t.hunit = u.hmy
+	INNER JOIN tenstatus ts ON ts.istatus = t.istatus
+	LEFT JOIN unittype ut ON ut.hmy = u.hUnitType
+	INNER JOIN (
+		SELECT max(th1.hmy) hmy
+			,th1.hTent hTent
+			,th1.sevent
+		FROM tenant_history th1
+		WHERE (UPPER(th1.sEvent) = 'MONTH TO MONTH')
+			AND th1.dtDate <= EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+			AND th1.htent NOT IN (
+				SELECT th2.htent
+				FROM TENANT_HISTORY TH2
+				WHERE (UPPER(TH2.sEvent) = 'LEASE RENEWAL')
+					AND (
+						TH2.dtleaseto BETWEEN convert(DATETIME, '#BudYear#', 101)
+							AND EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+						OR TH2.dtLeaseFrom BETWEEN convert(DATETIME, '#BudYear#', 101)
+							AND EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+						)
+					AND TH2.hmy > th1.hmy
+					AND th2.htent = th1.htent
+				)
+		GROUP BY th1.sevent
+			,th1.htent
+		) maxTH ON maxTH.hTent = t.hmyPerson
+	LEFT JOIN (
+		SELECT min(hmy) hmy
+			,htent
+		FROM lease_history lh1
+		WHERE lh1.sStatus IN (
+				'Current'
+				,'Scheduled'
+				)
+			AND (
+				(
+					convert(DATETIME, '12/31/2020', 101) BETWEEN lh1.dtLeaseFrom
+						AND lh1.dtleaseTo
+					)
+				OR lh1.dtleaseto >= convert(DATETIME, '12/31/2020', 101)
+				)
+		GROUP BY htent
+		) minlh ON minlh.htent = t.hmyperson
+	LEFT JOIN lease_history lh ON lh.hmy = minlh.hmy
+		AND lh.htent = t.hmyperson
+	WHERE NOT (
+			isnull(lh.dtLeaseFrom, convert(DATETIME, '#BudYear#', 101)) <= EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+			AND isnull(lh.dtleaseTo, convert(DATETIME, '#BudYear#', 101) - 1) >= EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+			)
+		AND p.hMy IN (#hProperty#)
+		AND ts.STATUS NOT IN ('past')
+
+	UNION ALL
+
+	SELECT 'Notice With Rented' Section
+		,p.sAddr1 property_sAddr1
+		,p.scode PropCode
+		,u.scode uscode
+		,ut.SDesc utSDesc
+		,ts.STATUS
+		,isnull(u.sRent, 0) Market_rent
+		,isnull(u.dsqft, 0) unit_sqft
+		,isnull(t.sDeposit0, 0) tenant_deposit0
+		,t.scode Tenant_Code
+		,rtrim(t.sFirstName) + ' ' + t.sLastname resident
+		,isnull(t.sRent, 0) tenant_SRent
+		,t.dtLeaseFrom tenant_leasefrom
+		,t.dtleaseto tenant_leaseto
+		,t.dtMoveOut tenant_moveout
+		,u.hmy UnitId
+		,t.hmyperson TenantId
+	FROM Property p
+	INNER JOIN unit u ON u.hProperty = p.hmy
+	INNER JOIN tenant t ON t.hunit = u.hmy
+		AND (
+			t.istatus = 4
+			OR t.istatus = 2
+			)
+		AND t.dtleaseto BETWEEN convert(DATETIME, '#BudYear#', 101)
+			AND EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+	INNER JOIN tenstatus ts ON ts.istatus = t.istatus
+	LEFT JOIN unittype ut ON ut.hmy = u.hUnitType
+	INNER JOIN (
+		SELECT u.scode uscode
+			,isnull(t.sRent, 0) tenant_SRent
+			,PC.ileaseterm LeaseTermMonth
+			,t.dtLeaseFrom tenant_leasefrom
+			,t.dtLeaseTo tenant_leaseto
+			,t.scode Tenant_Code
+			,t.hunit Hunit
+			,rtrim(t.sFirstName) + ' ' + t.sLastname resident
+			,ts.STATUS TenStatus
+		FROM Property p
+		INNER JOIN unit u ON u.hProperty = p.hmy
+		INNER JOIN tenant t ON t.hunit = u.hmy
+			AND t.istatus = 2
+		INNER JOIN tenstatus ts ON ts.istatus = t.istatus
+		LEFT JOIN unittype ut ON ut.hmy = u.hUnitType
+		INNER JOIN Prospect pr ON pr.htenant = t.hmyperson
+		INNER JOIN Prospect_Charge Pc ON pc.hprospect = pr.hmy
+			AND pc.itype = 0
+		WHERE 1 = 1
+			AND p.hmy IN (#hProperty#)
+		) FutureTen ON t.hunit = FutureTen.hunit
+	WHERE 1 = 1
+		AND p.hMy IN (#hProperty#)
+
+	UNION ALL
+
+	SELECT 'Proposed' Section
+		,p.sAddr1 property_sAddr1
+		,p.scode PropCode
+		,u.scode uscode
+		,ut.SDesc utSDesc
+		,ts.STATUS
+		,isnull(u.sRent, 0) Market_rent
+		,isnull(u.dsqft, 0) unit_sqft
+		,isnull(t.sDeposit0, 0) tenant_deposit0
+		,t.scode Tenant_Code
+		,rtrim(t.sFirstName) + ' ' + t.sLastname resident
+		,isnull(t.sRent, 0) tenant_SRent
+		,t.dtLeaseFrom tenant_leasefrom
+		,t.dtleaseto tenant_leaseto
+		,t.dtMoveOut tenant_moveout
+		,u.hmy UnitId
+		,t.hmyperson TenantId
+	FROM Property p
+	INNER JOIN unit u ON u.hProperty = p.hmy
+	INNER JOIN tenant t ON t.hunit = u.hmy
+		AND t.istatus < 6
+	INNER JOIN tenstatus ts ON ts.istatus = t.istatus
+	LEFT JOIN unittype ut ON ut.hmy = u.hUnitType
+	INNER JOIN (
+		SELECT max(Lh.hmy) hmy
+			,Lh.hTent hTent
+			,max(BPB.dtProposalExpiration) ProposalExp
+			,max(bpb.bdynamicpricing) IsDynamicPricing
+		FROM Lease_history Lh
+		INNER JOIN tenant t1 ON Lh.htent = t1.hmyperson
+		LEFT JOIN BulkProposalBatch BPB ON BPB.hmy = lh.hbatch
+		WHERE Lh.dtoccurred BETWEEN convert(DATETIME, '#BudYear#', 101)
+				AND EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+		GROUP BY Lh.htent
+		) LeaseData ON LeaseData.hTent = t.hmyPerson
+	WHERE 1 = 1
+		AND p.hMy IN (#hProperty#)
+
+	UNION ALL
+
+	SELECT 'Scheduled Renewals' Section
+		,p.sAddr1 property_sAddr1
+		,p.scode PropCode
+		,u.scode uscode
+		,ut.SDesc utSDesc
+		,ts.STATUS
+		,isnull(u.sRent, 0) Market_rent
+		,isnull(u.dsqft, 0) unit_sqft
+		,isnull(t.sDeposit0, 0) tenant_deposit0
+		,t.scode Tenant_Code
+		,rtrim(t.sFirstName) + ' ' + t.sLastname resident
+		,isnull(t.sRent, 0) tenant_SRent
+		,t.dtLeaseFrom tenant_leasefrom
+		,t.dtleaseto tenant_leaseto
+		,t.dtMoveOut tenant_moveout
+		,u.hmy UnitId
+		,t.hmyperson TenantId
+	FROM Property p
+	INNER JOIN unit u ON u.hProperty = p.hmy
+	INNER JOIN tenant t ON t.hunit = u.hmy
+		AND t.istatus < 6
+	INNER JOIN tenstatus ts ON ts.istatus = t.istatus
+	LEFT JOIN unittype ut ON ut.hmy = u.hUnitType
+	INNER JOIN (
+		SELECT max(Lh.hmy) hmy
+			,Lh.hTent hTent
+		FROM Lease_history Lh
+			,tenant t1
+		WHERE Lh.dtscheduled BETWEEN convert(DATETIME, '#BudYear#', 101)
+				AND EOMONTH(DATEADD(MONTH, 11, convert(DATETIME, '#BudYear#', 101)))
+			AND Lh.htent = t1.hmyperson
+		GROUP BY Lh.htent
+		) LeaseData ON LeaseData.hTent = t.hmyPerson
+	WHERE 1 = 1
+		AND p.hMy IN (#hProperty#)
+	) Query
+GROUP BY PropCode
+
+//End Select
+//select Header
+SELECT p.scode AS PropCode
+	,p.saddr1 AS 'PropName'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 1
+			THEN 'Actuals '+ CHAR(13) + 'Jan'
+		ELSE 'Budget ' + CHAR(13) + 'Jan'
+		END AS 'First'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 2
+			THEN 'Actuals '+ CHAR(13)+CHAR(10) + 'Feb'
+		ELSE 'Budget '+ CHAR(13)+CHAR(10) + 'Feb'
+		END AS 'Second'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 3
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Mar'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Mar'
+		END AS 'Third'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 4
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Apr'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Apr'
+		END AS 'Fourth'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 5
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'May'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'May'
+		END AS 'Fifth'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 6
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Jun'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Jun'
+		END AS 'Sixth'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 7
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Jul'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Jul'
+		END AS 'Seventh'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 8
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Aug'
+		ELSE 'Budget '+ CHAR(13)+CHAR(10) + 'Aug'
+		END AS 'Eighth'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 9
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Sept'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Sep'
+		END AS 'Ninth'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 10
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Oct'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Oct'
+		END AS 'Tenth'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 11
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Nov'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Nov'
+		END AS 'Eleventh'
+	,CASE
+		WHEN MONTH(NULLIF('#ActualCut#', '')) >= 12
+			THEN 'Actuals'+ CHAR(13)+CHAR(10) + 'Dec'
+		ELSE 'Budget'+ CHAR(13)+CHAR(10) + 'Dec'
+		END AS 'Twelth'
+	,CONVERT(VARCHAR(10), YEAR(DATEADD(YEAR, - 1, DATEADD(MONTH, 11, CONVERT(DATETIME, '#BudYear#')))), 101) + ' ' + 'Actuals' 'PYActuals'
+	,CONVERT(VARCHAR, YEAR('#BudYear#')) + ' Budget' 'CurYearBudget'
+    ,CONVERT(VARCHAR, YEAR('#BudYear#')) + ' Forecast' 'CurYearForecast'
+	,convert(varchar(4),YEAR('#BudYear#') + 1) 'BudYear'
+	,YEAR(CONVERT(DATETIME, '#BudYear#', 101)) 'CurrentYear'
+    ,'Variance ' + CHAR(13)+CHAR(10) +
+    CONVERT(VARCHAR, YEAR('#BudYear#')) + ' Forecast to' + CHAR(13)+CHAR(10) +
+    convert(varchar(4),YEAR('#BudYear#') + 1) + ' Budget' Variance2
+    ,'Property = '+ p.scode + ', Book = ' + (
+		SELECT STUFF((
+					SELECT ', ' + BookName
+					FROM Books
+					WHERE Book IN (#Book#)
+					FOR XML PATH('')
+						,TYPE
+					).value('.', 'NVARCHAR(MAX)'), 1, 1, '')
+	) + ', Start Month = ' +
+    '01/'+ CAST(YEAR('#BudYear#') +1 AS VARCHAR) + ' Duration = 12 Months' HeaderImport
+FROM PROPERTY P
+WHERE p.hmy IN (#hProperty#)
+
+//End select
+//Select TopGrid
+SELECT p.scode 'PropCode'
+	,p.saddr1 'PropAddr'
+	,round(avg(isNull(uh.cRent, isNull(u.sRent, 0))), 0) 'AvgRent'
+	,ROUND(SUM(isNull(uh.dsqft, isNull(u.dSqft, 0))), 0) 'TotalSF'
+	,round(avg(isNull(uh.dsqft, isNull(u.dSqft, 0))), 0) 'AvgSqft'
+	,SUM(CASE
+			WHEN isNull(us.sSTatus, ' ') = ' '
+				THEN 0
+			ELSE 1
+			END) 'TotalUnits'
+FROM property p
+INNER JOIN unit u ON (p.hmy = u.hproperty)
+INNER JOIN (
+	SELECT max(us1.hmy) hmy
+		,us1.hunit hunit
+	FROM unit_Status us1
+	WHERE us1.dtstart <= EOMONTH(DATEADD(MONTH, 11, '#BudYear#'))
+		AND (
+			(us1.dtend IS NULL)
+			OR (us1.dtend >= EOMONTH(DATEADD(MONTH, 11, '#BudYear#')))
+			)
+	GROUP BY us1.hunit
+	) maxus ON maxus.hunit = u.hmy
+INNER JOIN unit_status us ON us.hmy = maxus.hmy
+	AND us.hunit = maxus.hunit
+LEFT JOIN unittype ut ON (u.hunittype = ut.hmy)
+LEFT JOIN (
+	SELECT max(uh1.hmy) hmy
+		,uh1.hUnit hUnit
+	FROM unit_history uh1
+	WHERE dtDate <= EOMONTH(DATEADD(MONTH, 11, '#BudYear#'))
+	GROUP BY hUnit
+	) maxUH ON maxUH.hUnit = u.hmy
+LEFT JOIN unit_history uh ON uh.hmy = maxUH.hmy
+	AND uh.hUnit = u.hmy
+WHERE 1 = 1
+	AND u.irentaltype IN (
+		SELECT element
+		FROM label
+		WHERE upper(subtype) = 'UNIT RENTAL TYPES'
+			AND list = '1'
+		)
+	AND upper(us.sStatus) NOT IN (
+		'WAITLIST'
+		,'EXCLUDED'
+		)
+	AND p.hMy IN (#hProperty#)
+GROUP BY p.scode
+	,p.saddr1
+
+//End Select
+
+//SELECT TopGridCommercial
+
+SELECT DISTINCT p.sCode PropertyCode
+	,p.saddr1 + ',' + p.scity PropertyName
+	,p.hMy PropertyId
+	,t.hMyPerson LeaseId
+	,t.sLastName LeaseName
+	,t.dtLeaseFrom LeaseFrom
+	,t.dtLeaseTo LeaseTo
+	,datediff(mm, t.dtLeaseFrom, t.dtLeaseTo) + 1 LeaseTerms
+	,(
+		SELECT sdesc
+		FROM commleasetype
+		WHERE hmy = ct.hleaseType
+		) LeaseType
+	,t.iStatus LeaseStatus
+	,isnull(amt.mthamt, 0) MonthlyRent
+	,uarea.dsqft Area
+	,isnull(Recov.RecovAmt, 0) Recov
+	,isnull(Misc.MiscAmt, 0) Misc
+	,isnull(locamount.sumlocamount, 0) locamount
+	,dbo.CommLeaseUnits(t.hMyPerson, convert(DATETIME, '#BudYear#', 101)) Units
+	,isnull(t.sDeposit0, 0) + isnull(t.sDeposit1, 0) + isnull(t.sDeposit2, 0) + isnull(t.sDeposit3, 0) + isnull(t.sDeposit4, 0) + isnull(t.sDeposit5, 0) + isnull(t.sDeposit6, 0) + isnull(t.sDeposit7, 0) + isnull(t.sDeposit8, 0) + isnull(t.sDeposit9, 0) deposit
+	,isNull(BankGur.AmountCovered, 0) AmountCovered
+FROM Property p
+INNER JOIN tenant t ON p.hMy = t.hProperty
+	AND t.istatus NOT IN (
+		10
+		,2
+		)
+INNER JOIN COMMTENANT ct ON ct.hTenant = T.hMyPerson
+	AND isnull(ct.bIsCMLLease, 0) = 0
+INNER JOIN COMMLEASETYPE CLT ON ct.hLeaseType = clt.hMy
+	AND isnull(clt.bOwnerLiability, 0) = 0
+	AND clt.iSystemType <> 3
+	AND p.iType <> 443
+	AND isnull(p.itypecommercial, 0) <> 0
+	AND convert(DATETIME, '#BudYear#', 101) BETWEEN t.dtleasefrom
+		AND isnull(t.dtLeaseto, convert(DATETIME, '#BudYear#', 101))
+LEFT JOIN (
+	SELECT cr.htenant htenant
+		,sum(cr.dmonthlyamount) mthAmt
+	FROM camrule cr
+	INNER JOIN chargtyp ctyp ON ctyp.hmy = cr.hchargecode
+		AND ctyp.itype = 2
+	WHERE 1 = 1
+		AND convert(DATETIME, '#BudYear#', 101) BETWEEN cr.dtfrom
+			AND isnull(cr.dtto, convert(DATETIME, '#BudYear#', 101))
+		AND isnull(cr.htenant, 0) <> 0
+	GROUP BY cr.htenant
+	) amt ON amt.htenant = t.hmyperson
+LEFT JOIN (
+	SELECT cr.htenant htenant
+		,sum(cr.dmonthlyamount) Recovamt
+	FROM camrule cr
+	INNER JOIN chargtyp ctyp ON ctyp.hmy = cr.hchargecode
+		AND ctyp.itype = 0
+	WHERE (1 = 1)
+		AND convert(DATETIME, '#BudYear#', 101) BETWEEN cr.dtfrom
+			AND isnull(cr.dtto, convert(DATETIME, '#BudYear#', 101))
+		AND isnull(cr.htenant, 0) <> 0
+	GROUP BY cr.htenant
+	) Recov ON Recov.htenant = t.hmyperson
+LEFT JOIN (
+	SELECT cr.htenant htenant
+		,sum(cr.dmonthlyamount) MiscAmt
+	FROM camrule cr
+	INNER JOIN chargtyp ctyp ON ctyp.hmy = cr.hchargecode
+		AND ctyp.itype = 3
+	WHERE 1 = 1
+		AND convert(DATETIME, '#BudYear#', 101) BETWEEN cr.dtfrom
+			AND isnull(cr.dtto, convert(DATETIME, '#BudYear#', 101))
+		AND isnull(cr.htenant, 0) <> 0
+	GROUP BY cr.htenant
+	) misc ON misc.htenant = t.hmyperson
+LEFT JOIN (
+	SELECT ux.htenant htenant
+		,sum(ux.dsqft) dsqft
+		,sum(u.srent) srent
+	FROM unitxref ux
+	INNER JOIN unit u ON ux.hunit = u.hmy
+	WHERE 1 = 1
+		AND convert(DATETIME, '#BudYear#', 101) BETWEEN ux.dtleasefrom
+			AND isnull(ux.dtMoveout, isnull(ux.dtleaseto, convert(DATETIME, '#BudYear#', 101)))
+	GROUP BY ux.htenant
+	) uarea ON uarea.htenant = t.hmyperson
+LEFT JOIN (
+	SELECT t.hmyperson TenantId
+		,Sum(bg.dAmountReceived) AmountCovered
+	FROM IntBankGuarantee bg
+	INNER JOIN Tenant t ON (bg.hTenant = t.hMyPerson)
+	WHERE 1 = 1
+		AND isNull(bg.bInactive, 0) = 0
+	GROUP BY t.HMYPERSON
+	) BankGur ON (BankGur.TenantId = t.Hmyperson)
+LEFT JOIN (
+	SELECT t.hmyperson hmy
+		,sum(clh.DRUNNINGBAL) sumlocamount
+	FROM property p
+	INNER JOIN tenant t ON p.hmy = t.hproperty
+	INNER JOIN commloc clc ON clc.htenant = t.hmyperson
+	INNER JOIN commlocamounthistory clh ON clh.hloc = clc.hmy
+		AND convert(DATETIME, '#BudYear#', 101) BETWEEN clh.dtfrom
+			AND isnull(clh.dtTo, convert(DATETIME, '#BudYear#', 101))
+	GROUP BY t.hmyperson
+	) locamount ON locamount.hmy = t.hmyperson
+WHERE 1 = 1
+	AND p.iType <> 443
+	AND p.hmy IN (#hProperty#)
+
+UNION ALL
+
+SELECT DISTINCT ltrim(rtrim(p.scode)) PropertyCode
+	,p.saddr1 + ',' + p.scity PropertyName
+	,p.hMy PropertyId
+	,0 LeaseId
+	,'VACANT' LeaseName
+	,'01/01/9001' LeaseFrom
+	,'01/01/9001' LeaseTo
+	,0 LeaseTerms
+	,'N/A' LeaseType
+	,0 LeaseStatus
+	,0 MonthlyRent
+	,dbo.calcunitarea(u.hmy, convert(DATETIME, '#BudYear#', 101)) Area
+	,0 Recov
+	,0 Misc
+	,0 locamount
+	,u.scode Units
+	,0 Deposit
+	,0 AmountCovered
+FROM Property P
+INNER JOIN unit u ON u.hproperty = p.hmy
+	AND u.exclude = 0
+	AND isnull(p.itypecommercial, 0) <> 0
+	AND u.IRENTALTYPE NOT IN (
+		SELECT ISNULL(IRENTALTYPE, 0)
+		FROM CommCMLUnitRentalType
+		WHERE ISNULL(iCMLType, 0) = - 1
+		)
+	AND p.hmy IN (#hProperty#)
+		AND p.iType <> 443
+LEFT JOIN unitxref ux ON ux.hunit = u.hmy
+LEFT JOIN tenant t ON t.hmyperson = ux.htenant
+WHERE 1 = 1
+	AND u.hmy NOT IN (
+		SELECT u.hmy
+		FROM property p
+		INNER JOIN unit u ON p.hmy = u.hproperty
+		INNER JOIN unitxref ux ON ux.hunit = u.hmy
+			AND ux.htenant IS NOT NULL
+		WHERE 1 = 1
+			AND convert(DATETIME, '#BudYear#', 101) BETWEEN ux.dtleasefrom
+				AND isnull(ux.dtMoveOut, isnull(ux.dtleaseto, '01-jan-2100'))
+			OR ux.hmy IS NULL
+			AND p.hmy IN (#hProperty#)
+					)
+ORDER BY propertyCode
+	,propertyName
+	,units
+
+
+//END SELECT

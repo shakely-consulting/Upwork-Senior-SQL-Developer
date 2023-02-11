@@ -633,92 +633,13 @@ BEGIN
 END
 GO
 
+/* Generate a csv file from a table, can be used with any table. */
 
-IF object_id('uspGetPricesRecord') IS NOT NULL
-	DROP PROC [uspGetPricesRecord];
-GO
+/***
 
-CREATE PROC uspGetPricesRecord (
-	@top NVARCHAR(20) = NULL
-	,@symbol VARCHAR(10) = ''
-	,@holdings VARCHAR(20) = '0.00628000'
-	,@debug INT = 0
-	)
-AS
-BEGIN
-	SET NOCOUNT ON
+EXEC sp_dumptoCSV_EtlFormat 'Property', 0, 'Y', 'Property'
 
-	/*EXEC uspRefreshPricesRecordTable;*/
-	DECLARE @s NVARCHAR(max);
-
-	SET @s = '
-;with cte
-as (
-	select pr.[Id]
-		,row_number() over (
-			partition by pr.[Open]
-			,pr.[High]
-			,pr.[Low]
-			,pr.[Close]
-			,pr.[AdjustedClose] order by [Date] desc
-			) [rownum]
-		,pr.UserId
-		,pr.[Symbol]
-		,pr.[Date]
-		,pr.CreatedAt
-		,pr.[Open]
-		,pr.[High]
-		,pr.[Low]
-		,pr.[Close]
-		,pr.[AdjustedClose]
-		,pr.[Volume]
-		,pr.[Pct_Change]
-	from PricesRecords pr
-	where 1 = 1
-	)
-select ';
-
-	IF (
-			isnull(@top, '') <> ''
-			AND NOT @top = - 1
-			)
-		SET @s += ' TOP ' + @top + ' ';
-	SET @s += '
-	ROW_NUMBER() OVER (
-		ORDER BY [Date] DESC, [Id] DESC
-		) AS Id
-	,UserId
-	,cte.[Symbol]
-	,cte.[Date]
-	,ISNULL(cte.CreatedAt, GETUTCDATE()) CreatedAt
-	,cte.[Open]
-	,cte.[High]
-	,cte.[Low]
-	,cte.[Close]
-	,cte.[AdjustedClose]
-	,cte.[Volume]
-	,CONVERT(DECIMAL(10, 2), CASE
-			WHEN cast(CreatedAt AS DATE) = cast([Date] AS DATE)
-				THEN COALESCE(cte.Pct_Change, ((AdjustedClose - cte.[Open]) / cast(cte.[Open] AS FLOAT)) * 100)
-			ELSE ((AdjustedClose - cte.[Open]) / cast(cte.[Open] AS FLOAT)) * 100
-			END) Pct_Change
-	,[AdjustedClose] * case
-		when Symbol = ';
-	SET @s += ' ''JNJ'' ';
-	SET @s += '  then ''1.215'' ELSE ';
-	SET @s += '''' + @holdings + ''''
-	SET @s += ' end as CurrentHoldings ';
-	SET @s += '
-from cte
-where rownum = 1
-order by Id , [Date] , CreatedAt  '
-
-	IF @debug = 1
-		SELECT @s;
-
-	EXEC sp_executesql @s;
-END
-GO
+***/
 
 IF object_id('sp_dumptoCSV_EtlFormat') IS NOT NULL
 	DROP PROC [sp_dumptoCSV_EtlFormat];
