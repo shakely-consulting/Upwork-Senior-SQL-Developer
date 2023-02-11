@@ -1,3 +1,4 @@
+/* Get a list of all objects with a text definition with a name like something */
 IF object_id('spnamelike') IS NOT NULL
 	DROP PROCEDURE [spnamelike];
 GO
@@ -12,6 +13,8 @@ BEGIN
 		AND OBJECT_DEFINITION(object_id) IS NOT NULL
 END
 GO
+
+/* Get all foreign keys for a specific table or all tables in the database */
 
 IF object_id('spkeys') IS NOT NULL
 	DROP PROCEDURE [spkeys];
@@ -54,6 +57,123 @@ BEGIN
 	END CATCH
 END
 GO
+
+/* Generate a sql script that will create the table, used for moving tables from one database to another quickly */
+
+IF object_id('SPCREATETABLE') IS NOT NULL
+	DROP PROCEDURE [SPCREATETABLE]
+GO
+
+CREATE PROCEDURE spcreatetable (@objname SYSNAME)
+AS
+BEGIN
+	DECLARE @objid INT = OBJECT_ID(@objname)
+		,@tableCreation NVARCHAR(MAX)
+		,@dropDummy NVARCHAR(MAX)
+		,@HasIdentity NVARCHAR(max)
+		,@identitycol SYSNAME
+		,@boolIdentity INT
+		,@end NVARCHAR(max)
+		,@query NVARCHAR(MAX)
+
+	SELECT @boolIdentity = dbo.fnHasIdentity(@objname);
+
+	SELECT @identitycol = name
+	FROM sys.all_columns
+	WHERE object_name(object_id) = @objname
+		AND is_identity = 1;
+
+	SELECT @HasIdentity = '(' + CHAR(9) + CHAR(10) + CHAR(13) + CHAR(9) + QUOTENAME(@identitycol) + ' BIGINT IDENTITY (1,1) '
+	FROM sys.all_columns
+	WHERE is_identity = 1;
+
+	IF @boolIdentity = 0
+		SELECT @tableCreation = 'IF OBJECT_ID(' + QUOTENAME(@objname, '''') + ') IS NULL CREATE TABLE ' + QUOTENAME(@objname) + ' (';
+	ELSE IF @boolIdentity = 1
+		SELECT @tableCreation = 'IF OBJECT_ID(' + QUOTENAME(@objname, '''') + ') IS NULL CREATE TABLE ' + QUOTENAME(@objname) + ' ' + @HasIdentity;
+
+	IF @boolIdentity = 0
+		SELECT @end = ' ) ON [PRIMARY] ;'
+	ELSE IF @boolIdentity = 1
+		SELECT @end = 'CONSTRAINT ' + QUOTENAME('PK_' + @objname) + ' PRIMARY KEY NONCLUSTERED( ' + QUOTENAME(isnull(@identitycol, 'Id')) + ' ASC)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ' + 'ON [PRIMARY]) ON [PRIMARY] ' + CHAR(10);
+
+	SELECT [Create] AS 'Create'
+	FROM (
+		SELECT @tableCreation AS 'Create'
+
+		UNION ALL
+
+		SELECT CASE
+				WHEN ODB = 1
+					AND @boolIdentity = 0
+					THEN Col
+				ELSE ', ' + Col
+				END + ' NULL ' AS 'Create'
+		FROM (
+			SELECT ROW_NUMBER() OVER (
+					ORDER BY column_id
+					) AS ODB
+				,(
+					CASE
+						WHEN type_name(user_type_id) IN (
+								'numeric'
+								,'decimal'
+								)
+							THEN QUOTENAME(name) + ' ' + type_name(user_type_id) + ' (' + convert(VARCHAR, precision) + ',' + convert(VARCHAR, scale) + ')'
+						WHEN type_name(user_type_id) LIKE '%DATE%'
+							THEN QUOTENAME(name) + ' ' + type_name(user_type_id)
+						WHEN type_name(user_type_id) IN (
+								'varchar'
+								,'nvarchar'
+								,'char'
+								)
+							AND CONVERT(INT, max_length) <> - 1
+							THEN QUOTENAME(name) + ' ' + type_name(user_type_id) + ' (' + convert(VARCHAR, CONVERT(INT, max_length / CASE
+											WHEN left(type_name(user_type_id), 1) = 'n'
+												THEN 2
+											ELSE 1
+											END)) + ')'
+						WHEN type_name(user_type_id) IN (
+								'varchar'
+								,'nvarchar'
+								,'char'
+								)
+							AND CONVERT(INT, max_length) = - 1
+							THEN QUOTENAME(name) + ' ' + type_name(user_type_id) + ' (MAX)'
+						WHEN type_name(user_type_id) IN (
+								'varbinary'
+								,'float'
+								,'text'
+								)
+							THEN QUOTENAME(name) + ' ' + type_name(user_type_id)
+						WHEN type_name(user_type_id) IN (
+								'smallint'
+								,'tinyint'
+								,'int'
+								,'bigint'
+								,'bit'
+								,'money'
+								,'timestamp'
+								)
+							THEN QUOTENAME(name) + ' ' + type_name(user_type_id)
+						ELSE QUOTENAME(name) + ' ' + type_name(user_type_id)
+						END
+					) AS Col
+			FROM sys.all_columns
+			WHERE object_name(object_id) = @objname
+				AND is_identity <> 1
+			) AS TEMP
+		WHERE Col IS NOT NULL
+
+		UNION ALL
+
+		SELECT @end
+		) X;
+END
+GO
+
+/* Get all contents from a table in a database in the form of inserts into that table */
+/* Usually used after you've moved the table over with spcreatetable */
 IF object_id('spcontents') IS NOT NULL
 	DROP PROCEDURE [spcontents]
 GO
@@ -252,6 +372,7 @@ BEGIN
 END;
 GO
 
+/* Generate an insert statement for a table */
 IF object_id('spgetinsert') IS NOT NULL
 	DROP PROCEDURE spgetinsert;
 GO
@@ -306,6 +427,7 @@ BEGIN
 END
 GO
 
+/* basically sp_helptext but easier to type :)  */
 IF object_id('spgetsp') IS NOT NULL
 	DROP PROCEDURE [spgetsp];
 GO
@@ -345,6 +467,8 @@ BEGIN
 	SELECT 'Create' = @s + CHAR(10) + 'GO' + CHAR(10);
 END
 GO
+
+/* check of a table has an identity column */
 
 IF object_id('fnHasIdentity') IS NOT NULL
 	DROP FUNCTION [fnHasIdentity];
@@ -404,117 +528,6 @@ BEGIN
 END
 GO
 
-IF object_id('SPCREATETABLE') IS NOT NULL
-	DROP PROCEDURE [SPCREATETABLE]
-GO
-
-CREATE PROCEDURE spcreatetable (@objname SYSNAME)
-AS
-BEGIN
-	DECLARE @objid INT = OBJECT_ID(@objname)
-		,@tableCreation NVARCHAR(MAX)
-		,@dropDummy NVARCHAR(MAX)
-		,@HasIdentity NVARCHAR(max)
-		,@identitycol SYSNAME
-		,@boolIdentity INT
-		,@end NVARCHAR(max)
-		,@query NVARCHAR(MAX)
-
-	SELECT @boolIdentity = dbo.fnHasIdentity(@objname);
-
-	SELECT @identitycol = name
-	FROM sys.all_columns
-	WHERE object_name(object_id) = @objname
-		AND is_identity = 1;
-
-	SELECT @HasIdentity = '(' + CHAR(9) + CHAR(10) + CHAR(13) + CHAR(9) + QUOTENAME(@identitycol) + ' BIGINT IDENTITY (1,1) '
-	FROM sys.all_columns
-	WHERE is_identity = 1;
-
-	IF @boolIdentity = 0
-		SELECT @tableCreation = 'IF OBJECT_ID(' + QUOTENAME(@objname, '''') + ') IS NULL CREATE TABLE ' + QUOTENAME(@objname) + ' (';
-	ELSE IF @boolIdentity = 1
-		SELECT @tableCreation = 'IF OBJECT_ID(' + QUOTENAME(@objname, '''') + ') IS NULL CREATE TABLE ' + QUOTENAME(@objname) + ' ' + @HasIdentity;
-
-	IF @boolIdentity = 0
-		SELECT @end = ' ) ON [PRIMARY] ;'
-	ELSE IF @boolIdentity = 1
-		SELECT @end = 'CONSTRAINT ' + QUOTENAME('PK_' + @objname) + ' PRIMARY KEY NONCLUSTERED( ' + QUOTENAME(isnull(@identitycol, 'Id')) + ' ASC)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ' + 'ON [PRIMARY]) ON [PRIMARY] ' + CHAR(10);
-
-	SELECT [Create] AS 'Create'
-	FROM (
-		SELECT @tableCreation AS 'Create'
-
-		UNION ALL
-
-		SELECT CASE
-				WHEN ODB = 1
-					AND @boolIdentity = 0
-					THEN Col
-				ELSE ', ' + Col
-				END + ' NULL ' AS 'Create'
-		FROM (
-			SELECT ROW_NUMBER() OVER (
-					ORDER BY column_id
-					) AS ODB
-				,(
-					CASE
-						WHEN type_name(user_type_id) IN (
-								'numeric'
-								,'decimal'
-								)
-							THEN QUOTENAME(name) + ' ' + type_name(user_type_id) + ' (' + convert(VARCHAR, precision) + ',' + convert(VARCHAR, scale) + ')'
-						WHEN type_name(user_type_id) LIKE '%DATE%'
-							THEN QUOTENAME(name) + ' ' + type_name(user_type_id)
-						WHEN type_name(user_type_id) IN (
-								'varchar'
-								,'nvarchar'
-								,'char'
-								)
-							AND CONVERT(INT, max_length) <> - 1
-							THEN QUOTENAME(name) + ' ' + type_name(user_type_id) + ' (' + convert(VARCHAR, CONVERT(INT, max_length / CASE
-											WHEN left(type_name(user_type_id), 1) = 'n'
-												THEN 2
-											ELSE 1
-											END)) + ')'
-						WHEN type_name(user_type_id) IN (
-								'varchar'
-								,'nvarchar'
-								,'char'
-								)
-							AND CONVERT(INT, max_length) = - 1
-							THEN QUOTENAME(name) + ' ' + type_name(user_type_id) + ' (MAX)'
-						WHEN type_name(user_type_id) IN (
-								'varbinary'
-								,'float'
-								,'text'
-								)
-							THEN QUOTENAME(name) + ' ' + type_name(user_type_id)
-						WHEN type_name(user_type_id) IN (
-								'smallint'
-								,'tinyint'
-								,'int'
-								,'bigint'
-								,'bit'
-								,'money'
-								,'timestamp'
-								)
-							THEN QUOTENAME(name) + ' ' + type_name(user_type_id)
-						ELSE QUOTENAME(name) + ' ' + type_name(user_type_id)
-						END
-					) AS Col
-			FROM sys.all_columns
-			WHERE object_name(object_id) = @objname
-				AND is_identity <> 1
-			) AS TEMP
-		WHERE Col IS NOT NULL
-
-		UNION ALL
-
-		SELECT @end
-		) X;
-END
-GO
 
 
 IF object_id('sp_gettableschema') IS NOT NULL
