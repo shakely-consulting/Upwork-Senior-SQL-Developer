@@ -529,6 +529,8 @@ END
 GO
 
 
+/* Generate sql scripts to update the schema, good for if you've alread created the table, but schema has changed in one database and you want to  move that over to a new database without dropping and recreating the table then adding records back */
+
 
 IF object_id('sp_gettableschema') IS NOT NULL
 	DROP PROCEDURE [sp_gettableschema];
